@@ -1,0 +1,30 @@
+# Vivado build artifacts and temporary files
+*.wdb
+*.jou
+*.log
+*.str
+*.xpe
+*.html
+*.xml
+.Xil/
+*.cache/
+*.hw/
+*.sim/
+*.runs/
+*.ip_user_files/
+
+# Large generated files
+*.bit
+*.bin
+*.ltx
+*.rpt
+*.dcp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*~
+*.bak
+*.tmp
