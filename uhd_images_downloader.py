@@ -46,18 +46,10 @@ import zipfile
 import platform
 from urllib.parse import urljoin  # Python 3
 
-# For all the non-core-library imports, we will be extra paranoid and be very
-# nice with error messages so that everyone understands what's up.
-try:
-    import requests
-except ImportError:
-    sys.stdout.write(
-        "[ERROR] Missing module 'requests'! Please install it, e.g., by "
-        "running 'pip install requests' or any other tool that can install "
-        "Python modules.\n")
-    if platform.system() == 'Windows':
-        input('Hit Enter to continue.')
-    exit(0)
+# Using built-in urllib modules instead of requests
+import urllib.request
+import urllib.parse
+import urllib.error
 
 # pylint: disable=bad-whitespace
 _USERNAME_VARIABLE        = "UHD_IMAGES_USER"
@@ -380,20 +372,37 @@ def download(
     download_limit = download_limit or _DEFAULT_DOWNLOAD_LIMIT
     log("TRACE", "Downloading {} to {}".format(images_url, filename))
     auth = parse_auth(os.environ)
+
+    # Create request with headers
+    req = urllib.request.Request(images_url)
+    req.add_header('User-Agent', 'UHD Images Downloader')
+
+    # Add authentication if provided
+    if auth:
+        import base64
+        auth_string = '{}:{}'.format(auth[0], auth[1])
+        auth_bytes = auth_string.encode('ascii')
+        auth_header = base64.b64encode(auth_bytes).decode('ascii')
+        req.add_header('Authorization', 'Basic {}'.format(auth_header))
+
+    # Set up proxy handler if proxies are configured
+    if _PROXIES:
+        proxy_handler = urllib.request.ProxyHandler(_PROXIES)
+        opener = urllib.request.build_opener(proxy_handler)
+        urllib.request.install_opener(opener)
+
     try:
-        resp = requests.get(images_url, stream=True, proxies=_PROXIES,
-                            headers={'User-Agent': 'UHD Images Downloader'},
-                            auth=auth)
-    except TypeError:
-        # requests library versions pre-4c3b9df6091b65d8c72763222bd5fdefb7231149
-        # (Dec.'12) workaround
-        resp = requests.get(images_url, prefetch=False, proxies=_PROXIES,
-                            headers={'User-Agent': 'UHD Images Downloader'},
-                            allow_redirects=True, auth=auth)
-    if resp.status_code != 200:
-        raise RuntimeError("URL does not exist: {}".format(images_url))
-    filesize = float(resp.headers.get('content-length', -1))
+        resp = urllib.request.urlopen(req)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError("URL does not exist: {} (HTTP {})".format(images_url, e.code))
+    except urllib.error.URLError as e:
+        raise RuntimeError("Failed to fetch URL: {} ({})".format(images_url, e.reason))
+
+    # Get content length
+    content_length = resp.headers.get('content-length')
+    filesize = float(content_length) if content_length else -1
     base_filename = os.path.basename(filename)
+
     if filesize > download_limit:
         if not ask_permission(
                 "{} is a large file ({:.1f} GiB). Proceed with download?".format(
@@ -404,18 +413,22 @@ def download(
                 "The file size for {} could not be determined. "
                 "Proceed with download?".format(base_filename)):
             return 0, 0, ""
+
     filesize_dl = 0
     if print_progress and not sys.stdout.isatty():
         print_progress = False
         log("INFO", "Downloading {}, total size: {} kB".format(
             base_filename, filesize/1000 if filesize > 0 else "-unknown-"))
+
     with open(filename, "wb") as temp_file:
         sha256_sum = hashlib.sha256()
-        for buff in resp.iter_content(chunk_size=buffer_size):
-            if buff:
-                temp_file.write(buff)
-                filesize_dl += len(buff)
-                sha256_sum.update(buff)
+        while True:
+            buff = resp.read(buffer_size)
+            if not buff:
+                break
+            temp_file.write(buff)
+            filesize_dl += len(buff)
+            sha256_sum.update(buff)
             if print_progress:
                 status = r"%05d kB " % int(math.ceil(filesize_dl / 1000.))
                 if filesize > 0:
@@ -430,6 +443,8 @@ def download(
                     sys.stdout.write("\x1b[2K\r")  # Clear previous line
                 sys.stdout.write(status)
                 sys.stdout.flush()
+
+    resp.close()
     if print_progress:
         print('')
     if filesize <= 0:
