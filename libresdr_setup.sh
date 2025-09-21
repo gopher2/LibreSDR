@@ -150,6 +150,10 @@ if [ -f "$LIBRESDR_FPGA" ]; then
     $USE_SUDO cp "$LIBRESDR_FPGA" "$FPGA_PATH"
     echo "LibreSDR FPGA file installed successfully at: $FPGA_PATH"
     echo "UHD_IMAGES_DIR set to: $UHD_IMAGES_DIR"
+
+    # Clean up temporary firmware file
+    rm -f "$LIBRESDR_FPGA"
+    echo "Cleaned up temporary firmware file"
 else
     echo "Error: LibreSDR FPGA file not found at $LIBRESDR_FPGA"
 fi
